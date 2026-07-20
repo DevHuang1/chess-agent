@@ -20,12 +20,12 @@ local_binary_path = os.path.abspath("./stockfish")
 
 
 EMOTION_STRENGTH_PROFILES: Dict[str, Dict[str, int]] = {
-    "calm": {"depth": 11, "skillLevel": 6, "elo": 1300},
-    "focused": {"depth": 13, "skillLevel": 9, "elo": 1550},
-    "neutral": {"depth": 12, "skillLevel": 8, "elo": 1450},
-    "frustrated": {"depth": 9, "skillLevel": 5, "elo": 1150},
-    "stressed": {"depth": 8, "skillLevel": 4, "elo": 1050},
-    "confident": {"depth": 14, "skillLevel": 11, "elo": 1700},
+    "stressed": {"depth": 1, "skillLevel": 1, "elo": 1320},
+    "frustrated": {"depth": 2, "skillLevel": 3, "elo": 1320},
+    "calm": {"depth": 4, "skillLevel": 6, "elo": 1600},
+    "neutral": {"depth": 6, "skillLevel": 10, "elo": 2000},
+    "focused": {"depth": 8, "skillLevel": 15, "elo": 2600},
+    "confident": {"depth": 10, "skillLevel": 20, "elo": 3190},
 }
 MIN_UCI_ELO = 1320
 MAX_UCI_ELO = 3190

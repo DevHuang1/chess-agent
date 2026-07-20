@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 type CoachRequest = {
   fen: string;
   emotion?: string;
+  recentEmotions?: string[];
   question?: string;
 };
 
@@ -18,6 +19,7 @@ type CoachMeta = {
 type CoachReply = {
   message: string;
   suggestions: string[];
+  bestMove?: { uci: string; san: string } | null;
   meta: CoachMeta;
 };
 
@@ -41,14 +43,13 @@ type LlmChatCompletionResponse = {
   };
 };
 
-const EMOTION_TONE: Record<string, string> = {
-  calm: "You are steady. Keep building small advantages.",
-  focused: "Your focus is strong. Calculate one move deeper before committing.",
-  neutral: "Solid tempo. Keep pieces coordinated and avoid rushed pawn pushes.",
-  frustrated: "Take one breath and simplify. Look for forcing moves first.",
-  stressed: "Slow down and prioritize king safety over tactics.",
-  confident:
-    "Great confidence. Stay objective and watch for tactical blunders.",
+const EMOTION_ENCOURAGEMENT: Record<string, string> = {
+  confident: "They are feeling confident. Acknowledge their form and keep them sharp.",
+  focused: "They are concentrated. Encourage precision and remind them to stay calm under pressure.",
+  neutral: "They are composed. Keep the advice clear and tactical.",
+  calm: "They are relaxed. Reinforce good habits and keep them engaged.",
+  frustrated: "They seem frustrated. Be kind and encouraging. Tell them they are doing well and not to give up.",
+  stressed: "They appear stressed or anxious. Be warm and supportive. Remind them to breathe and trust their instincts.",
 };
 
 const COACH_LLM_ENABLED = process.env.COACH_LLM_ENABLED === "true";
@@ -72,6 +73,7 @@ function buildFallbackReply(
   gameOver: boolean,
   legalMoves: ReturnType<Chess["moves"]>,
   question?: string,
+  bestMove?: { uci: string; san: string } | null,
 ): CoachReply {
   const primaryAdvice = gameOver
     ? "Game over reached. Review critical turning points and missed tactics."
@@ -82,17 +84,18 @@ function buildFallbackReply(
         : `Position is flexible (${legalMoves.length} legal moves). Improve your worst-placed piece.`;
 
   const candidateMoves = legalMoves.slice(0, 3).map((move) => move.san);
-  const toneAdvice = EMOTION_TONE[emotion] ?? EMOTION_TONE.neutral;
+  const encouragement = EMOTION_ENCOURAGEMENT[emotion] ?? EMOTION_ENCOURAGEMENT.neutral;
   const questionSuffix =
     question && question.trim()
       ? `You asked: "${question.trim()}". Focus answer: evaluate king safety, loose pieces, and checks-captures-threats.`
       : "Tip: before each move, scan checks, captures, and threats for both sides.";
 
   return {
-    message: `${toneAdvice} ${primaryAdvice} ${questionSuffix}`,
+    message: `${encouragement} ${primaryAdvice} ${questionSuffix}`,
     suggestions: candidateMoves.map(
       (san, index) => `Candidate ${index + 1}: ${san}`,
     ),
+    bestMove,
     meta: {
       emotion,
       sideToMove,
@@ -101,6 +104,28 @@ function buildFallbackReply(
       gameOver,
     },
   };
+}
+
+async function fetchStockfishBestMove(fen: string, emotion: string): Promise<{ uci: string; san: string } | null> {
+  const BOT_MOVE_API_URL = process.env.BOT_MOVE_API_URL ?? "http://127.0.0.1:8000/api/bot-move";
+  try {
+    const response = await fetch(BOT_MOVE_API_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fen, emotion }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { botMove?: string | null };
+    if (!data.botMove) return null;
+    const chess = new Chess(fen);
+    const move = chess.move(data.botMove.toLowerCase());
+    if (!move) return null;
+    return { uci: data.botMove.toLowerCase(), san: move.san };
+  } catch {
+    return null;
+  }
 }
 function isGeneralQuery(question?: string): boolean {
   if (!question || !question.trim()) return false;
@@ -172,13 +197,14 @@ async function generateLlmCoachMessage(
 
   const systemContent = isGeneral
     ? "You are a helpful, direct, and brilliant AI assistant. Provide a highly accurate and thorough response to the user's question, completely ignoring any ongoing chess gameplay context."
-    : "You are Sentio, an empathetic chess coach. Respond with final coaching only. Do not output hidden reasoning.";
+    : "You are Sentio, an empathetic and encouraging chess coach. The user's emotional state is reflected in the emotion field — if they are frustrated or stressed, be warm, supportive, and praise their effort. If they are confident or focused, acknowledge their strength and keep them sharp. Always be encouraging, never harsh. Respond with final coaching only. Do not output hidden reasoning.";
 
   const userContent = isGeneral
     ? question!
     : [
         `FEN: ${payload.fen}`,
         `Emotion: ${fallback.meta.emotion}`,
+        ...(payload.recentEmotions?.length ? [`Recent emotions (last 15s): ${payload.recentEmotions.join(", ")}`] : []),
         `Side to move: ${fallback.meta.sideToMove}`,
         `In check: ${fallback.meta.inCheck}`,
         `Game over: ${fallback.meta.gameOver}`,
@@ -330,6 +356,10 @@ export async function POST(request: Request) {
   const inCheck = chess.inCheck();
   const gameOver = chess.isGameOver();
 
+  const [stockfishBestMove] = await Promise.all([
+    gameOver ? Promise.resolve(null) : fetchStockfishBestMove(payload.fen, emotion),
+  ]);
+
   const fallback = buildFallbackReply(
     emotion,
     sideToMove,
@@ -337,6 +367,7 @@ export async function POST(request: Request) {
     gameOver,
     legalMoves,
     payload.question,
+    stockfishBestMove,
   );
 
   if (!COACH_LLM_ENABLED) {

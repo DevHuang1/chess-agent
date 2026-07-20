@@ -16,6 +16,128 @@ type EmotionLabel =
   | "stressed"
   | "confident";
 
+const COACH_AUTO_ENCOURAGEMENT: Record<string, string[]> = {
+  confident: [
+    "You're playing with real confidence — love to see it. Keep the pressure on.",
+    "Great energy! You're in control. Stay sharp.",
+    "Love the swagger. Just don't get careless.",
+  ],
+  focused: [
+    "You're locked in. That's how you win games.",
+    "Nice concentration — keep calculating deep.",
+    "Focused and sharp. You've got this.",
+  ],
+  neutral: [
+    "Solid and steady. Good things will come.",
+    "You're playing fine — trust your instincts.",
+    "No panic. Just keep making good moves.",
+  ],
+  calm: [
+    "You look relaxed — that's your best state to play in.",
+    "Calm and collected. That's the way.",
+    "Staying cool under pressure. Well played.",
+  ],
+  frustrated: [
+    "Hey, you're doing better than you think. Take a breath.",
+    "Don't be hard on yourself. One good move changes everything.",
+    "Frustration is normal. Reset and focus on the next move.",
+    "You've got this. Don't let one setback shake you.",
+  ],
+  stressed: [
+    "Take a deep breath. You've handled tougher positions.",
+    "You're feeling the pressure, but you're still in this.",
+    "Slow down. You don't need to rush — think clearly.",
+    "Trust yourself. You know more than you think.",
+  ],
+};
+
+const BOT_REMARKS: Record<string, string[]> = {
+  confident: [
+    "Confidence looks good on you. Shame it won't save your king.",
+    "You're feeling bold. I love breaking that.",
+    "That swagger won't help when I'm done with you.",
+    "Love the energy. Let me crush it.",
+  ],
+  focused: [
+    "Sharp focus. I'll still outplay you.",
+    "Calculating hard? So am I. I'm just better at it.",
+    "You're locked in. Good. I prefer a challenge.",
+    "Focused? Good. You'll need it to keep up.",
+  ],
+  neutral: [
+    "Playing it cool? Let's see how long that lasts.",
+    "I'm just getting started.",
+    "Quiet now. Let's change that.",
+    "Neutral energy. I'll take that as a challenge.",
+  ],
+  calm: [
+    "Too relaxed. Let me fix that.",
+    "Calm before the storm. Here it comes.",
+    "You should be nervous.",
+    "Serene. Unbothered. About to be embarrassed.",
+  ],
+  frustrated: [
+    "I can feel the frustration. Makes you sloppy.",
+    "Don't tilt. Actually, do. I love it.",
+    "Rage makes you predictable.",
+    "Take a breath. You're playing right into my hands.",
+  ],
+  stressed: [
+    "You look stressed. Good.",
+    "Pressure cooker. Let's see if you crack.",
+    "Your play is getting shaky.",
+    "I can smell the panic. Beautiful.",
+  ],
+};
+
+const CHECK_REMARKS = [
+  "Check. Squirm a little.",
+  "Check. What are you gonna do about it?",
+  "King in danger. Again. Stay focused.",
+  "Check. Hope you saw that coming.",
+];
+
+const CAPTURE_REMARKS = [
+  "Piece down. You okay?",
+  "Thanks for the material.",
+  "That piece is mine now. Deal with it.",
+  "Oops. Did you need that?",
+];
+
+function pieceColorAtSquare(square: string, fen: string): 'w' | 'b' | null {
+  const board = fen.split(' ')[0];
+  const rows = board.split('/');
+  const file = square.charCodeAt(0) - 97;
+  const rank = 8 - parseInt(square[1]);
+  const row = rows[rank];
+  if (!row) return null;
+  let col = 0;
+  for (const ch of row) {
+    if (col > file) break;
+    if (col === file) {
+      if (ch >= '1' && ch <= '8') return null;
+      return ch === ch.toUpperCase() ? 'w' : 'b';
+    }
+    if (ch >= '1' && ch <= '8') {
+      col += parseInt(ch);
+    } else {
+      col++;
+    }
+  }
+  return null;
+}
+
+function generateRemark(em: EmotionLabel, isCheck: boolean, isCapture: boolean): string {
+  const pool = BOT_REMARKS[em] ?? BOT_REMARKS.neutral;
+  let remark = pool[Math.floor(Math.random() * pool.length)];
+  if (isCheck) {
+    remark = CHECK_REMARKS[Math.floor(Math.random() * CHECK_REMARKS.length)];
+  } else if (isCapture) {
+    remark = CAPTURE_REMARKS[Math.floor(Math.random() * CAPTURE_REMARKS.length)];
+  }
+  return remark;
+}
+
 type ChatMessage = {
   id: string;
   role: "user" | "assistant";
@@ -40,11 +162,6 @@ const EMOTION_PROFILES: Record<EmotionLabel, { depth: number; skillLevel: number
   neutral: { depth: 6, skillLevel: 10, elo: 2000 },
   focused: { depth: 8, skillLevel: 15, elo: 2600 },
   confident: { depth: 10, skillLevel: 20, elo: 3190 },
-};
-
-const DEFAULT_ENGINE_PROFILE: EngineProfile = {
-  emotion: "neutral",
-  ...EMOTION_PROFILES.neutral,
 };
 
 const Chessboard = dynamic(
@@ -129,55 +246,6 @@ export default function ChessPage() {
   const emotionHistoryRef = useRef<EmotionLabel[]>([]);
   const lastCoachAutoMessageRef = useRef(0);
 
-  const COACH_AUTO_ENCOURAGEMENT: Record<string, string[]> = {
-    confident: [
-      "You're playing with real confidence — love to see it. Keep the pressure on.",
-      "Great energy! You're in control. Stay sharp.",
-      "Love the swagger. Just don't get careless.",
-    ],
-    focused: [
-      "You're locked in. That's how you win games.",
-      "Nice concentration — keep calculating deep.",
-      "Focused and sharp. You've got this.",
-    ],
-    neutral: [
-      "Solid and steady. Good things will come.",
-      "You're playing fine — trust your instincts.",
-      "No panic. Just keep making good moves.",
-    ],
-    calm: [
-      "You look relaxed — that's your best state to play in.",
-      "Calm and collected. That's the way.",
-      "Staying cool under pressure. Well played.",
-    ],
-    frustrated: [
-      "Hey, you're doing better than you think. Take a breath.",
-      "Don't be hard on yourself. One good move changes everything.",
-      "Frustration is normal. Reset and focus on the next move.",
-      "You've got this. Don't let one setback shake you.",
-    ],
-    stressed: [
-      "Take a deep breath. You've handled tougher positions.",
-      "You're feeling the pressure, but you're still in this.",
-      "Slow down. You don't need to rush — think clearly.",
-      "Trust yourself. You know more than you think.",
-    ],
-  };
-
-  function postCoachEncouragement(em: EmotionLabel) {
-    const now = Date.now();
-    if (now - lastCoachAutoMessageRef.current < 25000) return;
-    lastCoachAutoMessageRef.current = now;
-    const pool = COACH_AUTO_ENCOURAGEMENT[em] ?? COACH_AUTO_ENCOURAGEMENT.neutral;
-    const text = pool[Math.floor(Math.random() * pool.length)];
-    const msg: ChatMessage = {
-      id: `coach-auto-${now}`,
-      role: "assistant",
-      content: text,
-    };
-    setChatMessages((prev) => [...prev, msg]);
-  }
-
   const [gamePosition, setGamePosition] = useState(
     "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
   );
@@ -186,9 +254,8 @@ export default function ChessPage() {
   const [emotion, setEmotion] = useState<EmotionLabel>("neutral");
   const [emotionMode, setEmotionMode] = useState<"auto" | "manual">("auto");
   const [modelsLoaded, setModelsLoaded] = useState(false);
-  const [engineProfile, setEngineProfile] = useState<EngineProfile>(
-    DEFAULT_ENGINE_PROFILE,
-  );
+  const [backendEngineProfile, setBackendEngineProfile] = useState<EngineProfile | null>(null);
+  const engineProfile = backendEngineProfile ?? { emotion, ...(EMOTION_PROFILES[emotion] ?? EMOTION_PROFILES.neutral) };
   const [gameOutcome, setGameOutcome] = useState<GameOutcome>("active");
   const [statusMessage, setStatusMessage] = useState("Sentio online.");
   const [isBotThinking, setIsBotThinking] = useState(false);
@@ -199,68 +266,6 @@ export default function ChessPage() {
   const [chatInput, setChatInput] = useState("");
   const [isCoachThinking, setIsCoachThinking] = useState(false);
 
-  const REMARKS: Record<string, string[]> = {
-    confident: [
-      "Confidence looks good on you. Shame it won't save your king.",
-      "You're feeling bold. I love breaking that.",
-      "That swagger won't help when I'm done with you.",
-      "Love the energy. Let me crush it.",
-    ],
-    focused: [
-      "Sharp focus. I'll still outplay you.",
-      "Calculating hard? So am I. I'm just better at it.",
-      "You're locked in. Good. I prefer a challenge.",
-      "Focused? Good. You'll need it to keep up.",
-    ],
-    neutral: [
-      "Playing it cool? Let's see how long that lasts.",
-      "I'm just getting started.",
-      "Quiet now. Let's change that.",
-      "Neutral energy. I'll take that as a challenge.",
-    ],
-    calm: [
-      "Too relaxed. Let me fix that.",
-      "Calm before the storm. Here it comes.",
-      "You should be nervous.",
-      "Serene. Unbothered. About to be embarrassed.",
-    ],
-    frustrated: [
-      "I can feel the frustration. Makes you sloppy.",
-      "Don't tilt. Actually, do. I love it.",
-      "Rage makes you predictable.",
-      "Take a breath. You're playing right into my hands.",
-    ],
-    stressed: [
-      "You look stressed. Good.",
-      "Pressure cooker. Let's see if you crack.",
-      "Your play is getting shaky.",
-      "I can smell the panic. Beautiful.",
-    ],
-  };
-
-  function generateRemark(em: EmotionLabel, isCheck: boolean, isCapture: boolean): string {
-    const pool = REMARKS[em] ?? REMARKS.neutral;
-    let remark = pool[Math.floor(Math.random() * pool.length)];
-    if (isCheck) {
-      const checks = [
-        "Check. Squirm a little.",
-        "Check. What are you gonna do about it?",
-        "King in danger. Again. Stay focused.",
-        "Check. Hope you saw that coming.",
-      ];
-      remark = checks[Math.floor(Math.random() * checks.length)];
-    } else if (isCapture) {
-      const captures = [
-        "Piece down. You okay?",
-        "Thanks for the material.",
-        "That piece is mine now. Deal with it.",
-        "Oops. Did you need that?",
-      ];
-      remark = captures[Math.floor(Math.random() * captures.length)];
-    }
-    return remark;
-  }
-
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
@@ -269,6 +274,19 @@ export default function ChessPage() {
         "I am Sentio. I can coach your position, explain plans, and adapt engine strength based on your emotional state.",
     },
   ]);
+
+  const postCoachEncouragementRef = useRef((em: EmotionLabel) => {
+    const now = Date.now();
+    if (now - lastCoachAutoMessageRef.current < 25000) return;
+    lastCoachAutoMessageRef.current = now;
+    const pool = COACH_AUTO_ENCOURAGEMENT[em] ?? COACH_AUTO_ENCOURAGEMENT.neutral;
+    const text = pool[Math.floor(Math.random() * pool.length)];
+    setChatMessages((prev) => [...prev, {
+      id: `coach-auto-${now}`,
+      role: "assistant",
+      content: text,
+    }]);
+  });
 
   useEffect(() => {
     document.body.style.overflow = "hidden";
@@ -345,12 +363,8 @@ export default function ChessPage() {
   }, [emotionMode, modelsLoaded]);
 
   useEffect(() => {
-    const profile = EMOTION_PROFILES[emotion];
-    if (profile) {
-      setEngineProfile({ emotion, ...profile });
-    }
     if (emotionMode === "auto") {
-      postCoachEncouragement(emotion);
+      postCoachEncouragementRef.current(emotion);
     }
   }, [emotion, emotionMode]);
 
@@ -466,7 +480,7 @@ export default function ChessPage() {
       };
 
       if (data.engineProfile) {
-        setEngineProfile(data.engineProfile);
+        setBackendEngineProfile(data.engineProfile);
       }
 
       if (data.botMove) {
@@ -505,7 +519,7 @@ export default function ChessPage() {
     }
   }
 
-  function applyMove(from: string, to: string) {
+  function applyMove(from: string, to: string, now: number) {
     const chess = chessRef.current;
     try {
       if (chess.turn() !== "w") return false;
@@ -519,7 +533,7 @@ export default function ChessPage() {
       if (!move) return false;
 
       const nextFen = chess.fen();
-      lastMoveTimestampRef.current = Date.now();
+      lastMoveTimestampRef.current = now;
       setSelectedSquare(null);
       setLegalMoveSquares([]);
       setGamePosition(nextFen);
@@ -536,7 +550,7 @@ export default function ChessPage() {
     }
   }
 
-  function handleSquareClick(square: string) {
+  function handleSquareClick(square: string, now: number) {
     const chess = chessRef.current;
     if (gameOutcome !== "active") return;
     const pieceOnSquare = chess.get(square as Square);
@@ -557,7 +571,7 @@ export default function ChessPage() {
       return;
     }
 
-    const moved = applyMove(selectedSquare, square);
+    const moved = applyMove(selectedSquare, square, now);
     if (!moved) {
       if (pieceOnSquare && pieceOnSquare.color === activeColor) {
         setSelectedSquare(square);
@@ -570,7 +584,7 @@ export default function ChessPage() {
     }
   }
 
-  function executeCoachMove(uci: string) {
+  function executeCoachMove(uci: string, now: number) {
     if (gameOutcome !== "active") return;
     const chess = chessRef.current;
     if (chess.turn() !== "w") return;
@@ -582,7 +596,7 @@ export default function ChessPage() {
       });
       if (!move) return;
       const nextFen = chess.fen();
-      lastMoveTimestampRef.current = Date.now();
+      lastMoveTimestampRef.current = now;
       setSelectedSquare(null);
       setLegalMoveSquares([]);
       setGamePosition(nextFen);
@@ -600,12 +614,12 @@ export default function ChessPage() {
     }
   }
 
-  async function handleAskCoach() {
+  async function handleAskCoach(now: number) {
     const question = chatInput.trim();
     if (!question || isCoachThinking) return;
 
     const userMessage: ChatMessage = {
-      id: `user-${Date.now()}`,
+      id: `user-${now}`,
       role: "user",
       content: question,
     };
@@ -640,7 +654,7 @@ export default function ChessPage() {
       };
 
       const coachMessage: ChatMessage = {
-        id: `assistant-${Date.now()}`,
+        id: `assistant-${now}`,
         role: "assistant",
         bestMove: data.bestMove ?? undefined,
         content: `${data.message}${
@@ -652,7 +666,7 @@ export default function ChessPage() {
       setChatMessages((previous) => [...previous, coachMessage]);
     } catch (error) {
       const coachError: ChatMessage = {
-        id: `assistant-error-${Date.now()}`,
+        id: `assistant-error-${now}`,
         role: "assistant",
         content:
           error instanceof Error
@@ -670,8 +684,8 @@ export default function ChessPage() {
         [selectedSquare]: { backgroundColor: "rgba(245, 158, 11, 0.45)" },
         ...Object.fromEntries(
           legalMoveSquares.map((sq) => {
-            const piece = chessRef.current.get(sq as Square);
-            if (piece && piece.color !== "w") {
+            const color = pieceColorAtSquare(sq, gamePosition);
+            if (color && color !== "w") {
               return [sq, { boxShadow: "inset 0 0 0 4px rgba(239,68,68,0.5)", borderRadius: "0" }];
             }
             return [sq, { background: "radial-gradient(circle, rgba(34,197,94,0.5) 25%, transparent 25%)" }];
@@ -684,10 +698,12 @@ export default function ChessPage() {
     id: "sentio-engine-board",
     position: gamePosition,
     onSquareClick: ({ square }) => {
-      handleSquareClick(square);
+      // eslint-disable-next-line react-hooks/purity
+      handleSquareClick(square, Date.now());
     },
     onPieceClick: ({ square }) => {
-      if (square) handleSquareClick(square);
+      // eslint-disable-next-line react-hooks/purity
+      if (square) handleSquareClick(square, Date.now());
     },
     squareStyles: customSquareStyles,
     allowDragging: false,
@@ -695,10 +711,9 @@ export default function ChessPage() {
     boardStyle: { touchAction: "none" },
   };
 
-  const chess = chessRef.current;
   const gameResultText =
     gameOutcome === "checkmate"
-      ? chess.turn() === "b"
+      ? gamePosition.split(' ')[1] === "b"
         ? "You Win!"
         : "You Lose"
       : gameOutcome === "stalemate"
@@ -842,7 +857,7 @@ export default function ChessPage() {
                   <div className="border-t border-zinc-700/50 px-3 py-2">
                     <button
                       type="button"
-                      onClick={() => executeCoachMove(message.bestMove!.uci)}
+                      onClick={() => executeCoachMove(message.bestMove!.uci, Date.now())}
                       className="w-full rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-500 transition-colors"
                     >
                       Play {message.bestMove.san}
@@ -859,7 +874,7 @@ export default function ChessPage() {
               onChange={(event) => setChatInput(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
-                  void handleAskCoach();
+                  void handleAskCoach(Date.now());
                 }
               }}
               placeholder="Ask Sentio for advice..."
@@ -868,7 +883,7 @@ export default function ChessPage() {
             <button
               type="button"
               onClick={() => {
-                void handleAskCoach();
+                void handleAskCoach(Date.now());
               }}
               disabled={isCoachThinking || !chatInput.trim()}
               className="rounded bg-amber-500 px-4 py-2.5 text-base font-semibold text-zinc-900 disabled:opacity-50"

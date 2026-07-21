@@ -29,8 +29,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Chess Agent",
-  description: "Stockfish AI Interface",
+  title: "Sentio — Emotion-Adaptive Chess",
+  description: "Play chess against Stockfish that adapts to your emotions",
 };
 
 export default function RootLayout({

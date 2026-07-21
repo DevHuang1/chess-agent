@@ -201,13 +201,58 @@ const EMOTION_PROFILES: Record<EmotionLabel, { depth: number; skillLevel: number
   confident: { depth: 10, skillLevel: 20, elo: 3190 },
 };
 
+const EMOTION_UI: Record<
+  EmotionLabel,
+  { badge: string; dot: string; ring: string; label: string }
+> = {
+  stressed: {
+    badge: "bg-rose-950/60 text-rose-200 ring-rose-500/30",
+    dot: "bg-rose-400",
+    ring: "ring-rose-500/40",
+    label: "Stressed",
+  },
+  frustrated: {
+    badge: "bg-orange-950/60 text-orange-200 ring-orange-500/30",
+    dot: "bg-orange-400",
+    ring: "ring-orange-500/40",
+    label: "Frustrated",
+  },
+  calm: {
+    badge: "bg-sky-950/60 text-sky-200 ring-sky-500/30",
+    dot: "bg-sky-400",
+    ring: "ring-sky-500/40",
+    label: "Calm",
+  },
+  neutral: {
+    badge: "bg-zinc-800/80 text-zinc-200 ring-zinc-500/30",
+    dot: "bg-zinc-400",
+    ring: "ring-zinc-500/40",
+    label: "Neutral",
+  },
+  focused: {
+    badge: "bg-violet-950/60 text-violet-200 ring-violet-500/30",
+    dot: "bg-violet-400",
+    ring: "ring-violet-500/40",
+    label: "Focused",
+  },
+  confident: {
+    badge: "bg-amber-950/60 text-amber-200 ring-amber-500/30",
+    dot: "bg-amber-400",
+    ring: "ring-amber-500/40",
+    label: "Confident",
+  },
+};
+
 const Chessboard = dynamic(
   () => import("react-chessboard").then((mod) => mod.Chessboard),
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-screen w-screen items-center justify-center bg-zinc-900 font-mono text-zinc-500">
-        Loading Sentio Interface...
+      <div className="flex h-screen w-screen items-center justify-center sentio-bg font-mono text-zinc-500">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-500/30 border-t-amber-400" />
+          Loading Sentio...
+        </div>
       </div>
     ),
   },
@@ -745,8 +790,22 @@ export default function ChessPage() {
     squareStyles: customSquareStyles,
     allowDragging: false,
     animationDurationInMs: 200,
-    boardStyle: { touchAction: "none" },
+    showNotation: true,
+    darkSquareStyle: { backgroundColor: "var(--sentio-board-dark)" },
+    lightSquareStyle: { backgroundColor: "var(--sentio-board-light)" },
+    darkSquareNotationStyle: { color: "#ebecd0", fontSize: "11px", opacity: 0.65 },
+    lightSquareNotationStyle: { color: "#4a6741", fontSize: "11px", opacity: 0.65 },
+    boardStyle: {
+      touchAction: "none",
+      borderRadius: "6px",
+      overflow: "hidden",
+    },
   };
+
+  const emotionUi = EMOTION_UI[emotion];
+  const engineStrengthPercent = Math.round(
+    ((engineProfile.elo - 1320) / (3190 - 1320)) * 100,
+  );
 
   const gameResultText =
     gameOutcome === "checkmate"

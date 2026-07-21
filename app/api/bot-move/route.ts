@@ -1,3 +1,18 @@
+/**
+ * This route is a thin proxy between the frontend chessboard and the Python
+ * backend that runs Stockfish. It validates the incoming request (ensuring
+ * the FEN string is present and well-typed), normalizes optional fields like
+ * strengthPreference, forwards the request to the FastAPI backend at the URL
+ * configured by BOT_MOVE_API_URL (defaulting to http://127.0.0.1:8000/api/bot-move),
+ * and relays the response back. If the backend is unreachable or returns an
+ * error, it translates the failure into an appropriate HTTP status code and
+ * a descriptive message for the frontend.
+ *
+ * The emotion string passed through this proxy is what drives Sentio's
+ * adaptive difficulty — it tells the backend which strength profile to use
+ * for Stockfish's search.
+ */
+
 import { NextResponse } from "next/server";
 
 const BACKEND_BOT_MOVE_API_URL =

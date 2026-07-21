@@ -1,5 +1,42 @@
 "use client";
 
+/**
+ * Sentio is an emotion-adaptive chess AI. Instead of asking you to pick a
+ * difficulty level, it watches your face through the webcam and adjusts
+ * Stockfish's strength in real time based on how you're feeling.
+ *
+ * The system runs four subsystems in parallel. The first is emotion detection:
+ * every 2.2 seconds, face-api.js (TinyFaceDetector + FaceExpressionNet)
+ * classifies your facial expression into one of seven categories, maps it to
+ * a game emotion (stressed, frustrated, calm, neutral, focused, confident),
+ * and smooths the result across the last three frames to avoid jitter.
+ *
+ * The second subsystem is the adaptive engine. When you make a move, the
+ * frontend sends your FEN and detected emotion to a Python FastAPI backend.
+ * The backend maps your emotion to a Stockfish profile — stressed gets you
+ * an engine that searches only one ply deep at ELO 1320; confident gets you
+ * a depth-10 search at ELO 3190. It spawns an isolated Stockfish instance
+ * per request, configures it with the profile, and returns the best move.
+ * This keeps you in flow: easier when you're struggling, harder when you're
+ * cruising.
+ *
+ * The third subsystem is the LLM coach. A Next.js API route accepts your
+ * questions about the position alongside your emotion history. It always has
+ * a fallback mode that uses chess.js to analyze the board and fetches
+ * Stockfish's best move to offer concrete advice. When enabled and reachable,
+ * it augments this with a local LLM (LM Studio) that acts as an empathetic
+ * chess tutor — or as a general assistant if your query isn't chess-related.
+ *
+ * The fourth subsystem is the bot's personality. Canned taunts and
+ * encouragement are served from pools keyed to your emotion, with separate
+ * pools for checks and captures. When you're frustrated or stressed, the
+ * coach also chimes in with unsolicited encouragement (capped at one message
+ * per 25 seconds).
+ *
+ * Together, these subsystems create a chess opponent that watches you as
+ * closely as you watch the board.
+ */
+
 import { useEffect, useRef, useState } from "react";
 import { Chess, Square } from "chess.js";
 import dynamic from "next/dynamic";

@@ -1,3 +1,17 @@
+/**
+ * Sentio — Emotion-Adaptive Chess AI
+ * ======================================
+ *
+ * This is a full-stack chess application where a human plays against Stockfish
+ * whose difficulty adapts in real time based on detected emotion from webcam.
+ *
+ * SYSTEM OVERVIEW:
+ * - Emotion Detection: face-api.js (TinyFaceDetector + FaceExpressionNet) in browser
+ * - Adaptive Engine: Python FastAPI → Stockfish with emotion-driven ELO/depth/skill
+ * - LLM Coach: Next.js API route → LM Studio (local LLM) with fallback analysis
+ * - UI: Next.js App Router + React 19 + react-chessboard + Tailwind CSS v4
+ */
+
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";

@@ -1,3 +1,32 @@
+/**
+ * Sentio's coach module provides natural-language chess coaching.
+ *
+ * It operates in two modes. The fallback mode is always active and requires no
+ * external dependencies. When the frontend sends a POST request with a FEN,
+ * emotion, and optional question, the coach first parses the position using
+ * chess.js to determine whose turn it is, whether the king is in check, how
+ * many legal moves exist, and whether the game is over. It then fetches
+ * Stockfish's best move from the Python backend and generates structured
+ * advice tailored to the position type (forcing vs. flexible) and the
+ * player's emotional state. The result is a message with candidate move
+ * suggestions and a clickable "Play [move]" button.
+ *
+ * The LLM mode augments this with a local large language model served by
+ * LM Studio. When COACH_LLM_ENABLED is true and the LM Studio endpoint is
+ * reachable, the coach constructs a detailed prompt containing the FEN,
+ * emotion history, side to move, legal move count, candidate moves, and
+ * the user's question, then sends it to LM Studio's /chat/completions
+ * endpoint. The system prompt changes based on query classification: if the
+ * user's input contains no chess keywords and isn't a move notation like
+ * "e4", the LLM ignores chess context entirely and acts as a general
+ * assistant. Otherwise it acts as an empathetic chess tutor. On failure
+ * (LLM unreachable, timeout, malformed response), it falls back cleanly
+ * to the fallback reply with an error note.
+ *
+ * The health-check endpoint (GET /api/coach) is polled by the frontend
+ * every 10 seconds to display the LLM connection status in the UI.
+ */
+
 import { Chess } from "chess.js";
 import { NextResponse } from "next/server";
 

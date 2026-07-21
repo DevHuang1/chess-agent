@@ -1,3 +1,30 @@
+"""
+Sentio is an emotion-adaptive chess AI. This file is the backend — the bridge
+between the Next.js frontend and the Stockfish chess engine.
+
+When the frontend sends a POST /api/bot-move with a FEN and an emotion string,
+this module resolves the emotion to a strength profile. Each emotion maps to
+three parameters: depth (search depth in plies, 1-10), Skill Level (Stockfish's
+internal skill parameter, 0-20, which introduces intentional blunders at low
+values), and UCI_Elo (ELO strength, 1320-3190, enforced via Stockfish's
+ELO-limiting mechanism). Stressed players get depth=1, skill=1, ELO=1320 —
+a very weak opponent. Confident players get depth=10, skill=20, ELO=3190 —
+near-maximum strength.
+
+Once the profile is determined, the module spawns a fresh, isolated Stockfish
+instance per request. This ensures no state leaks between moves. Stockfish
+is configured with the profile parameters plus Threads=2. The FEN is validated
+(using set_fen_position as the source of truth, since is_fen_valid can be
+unreliable in certain positions), and get_best_move() is called. Stockfish
+performs its search using a negamax framework with alpha-beta pruning,
+iterative deepening, and transposition tables — the same algorithm that makes
+it the strongest open-source chess engine in the world, now constrained to
+match the player's emotional state.
+
+The response includes the best move in UCI notation and the resolved engine
+profile for the frontend to display.
+"""
+
 import os
 from typing import Dict
 

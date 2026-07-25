@@ -3,14 +3,17 @@ FROM python:3.13-slim
 WORKDIR /backend
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc libc6-dev && \
+    wget xz-utils && \
     rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/stockfish /backend/stockfish
-RUN chmod +x /backend/stockfish
+RUN wget -q https://github.com/official-stockfish/Stockfish/releases/download/sf_16/stockfish-ubuntu-x86-64-avx2.tar.xz && \
+    tar -xJf stockfish-ubuntu-x86-64-avx2.tar.xz && \
+    mv stockfish-ubuntu-x86-64-avx2 /backend/stockfish && \
+    rm stockfish-ubuntu-x86-64-avx2.tar.xz && \
+    chmod +x /backend/stockfish
 
 COPY backend/main.py /backend/main.py
 

@@ -38,20 +38,20 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-local_binary_path = os.path.abspath("./stockfish")
+local_binary_path = os.path.join(os.path.dirname(__file__), "stockfish")
 
 
 EMOTION_STRENGTH_PROFILES: Dict[str, Dict[str, int]] = {
     "stressed": {"depth": 1, "skillLevel": 1, "elo": 1320},
     "frustrated": {"depth": 2, "skillLevel": 3, "elo": 1320},
-    "calm": {"depth": 4, "skillLevel": 6, "elo": 1600},
-    "neutral": {"depth": 6, "skillLevel": 10, "elo": 2000},
-    "focused": {"depth": 8, "skillLevel": 15, "elo": 2600},
+    "calm": {"depth": 4, "skillLevel": 6, "elo": 1500},
+    "neutral": {"depth": 6, "skillLevel": 10, "elo": 1700},
+    "focused": {"depth": 8, "skillLevel": 15, "elo": 2700},
     "confident": {"depth": 10, "skillLevel": 20, "elo": 3190},
 }
 MIN_UCI_ELO = 1320
@@ -88,24 +88,17 @@ async def get_bot_move(request: MoveRequest):
             depth=profile["depth"],
             parameters={
                 "Threads": 2,
-                "Skill Level": profile["skillLevel"],
                 "UCI_LimitStrength": True,
                 "UCI_Elo": profile["elo"],
             },
         )
 
-        if not stockfish.is_fen_valid(request.fen):
-            # Some terminal positions may be flagged as invalid by is_fen_valid in
-            # specific stockfish/python-stockfish combinations; set_fen_position is the
-            # source-of-truth validation step.
-            try:
-                stockfish.set_fen_position(request.fen)
-            except Exception:
-                raise HTTPException(
-                    status_code=400, detail="Invalid FEN position received."
-                )
-        else:
+        try:
             stockfish.set_fen_position(request.fen)
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="Invalid FEN position received."
+            )
         best_move = stockfish.get_best_move()
 
         if not best_move:

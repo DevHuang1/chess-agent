@@ -1,0 +1,18 @@
+FROM python:3.13-slim
+
+WORKDIR /backend
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc libc6-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY backend/stockfish /backend/stockfish
+RUN chmod +x /backend/stockfish
+
+COPY backend/main.py /backend/main.py
+
+EXPOSE 8000
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -26,6 +26,7 @@ profile for the frontend to display.
 """
 
 import os
+import shutil
 from typing import Dict
 
 from fastapi import FastAPI, HTTPException
@@ -43,7 +44,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-local_binary_path = os.path.join(os.path.dirname(__file__), "stockfish")
+
+def resolve_stockfish_path() -> str:
+    candidates = [
+        os.environ.get("STOCKFISH_PATH"),
+        os.path.join(os.path.dirname(__file__), "stockfish"),
+        shutil.which("stockfish"),
+    ]
+    for c in candidates:
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return "stockfish"
 
 
 EMOTION_STRENGTH_PROFILES: Dict[str, Dict[str, int]] = {
@@ -74,9 +85,11 @@ def resolve_strength_profile(emotion: str):
 
 @app.post("/api/bot-move")
 async def get_bot_move(request: MoveRequest):
-    if not os.path.exists(local_binary_path):
+    stockfish_path = resolve_stockfish_path()
+    if not os.path.isfile(stockfish_path) or not os.access(stockfish_path, os.X_OK):
         raise HTTPException(
-            status_code=500, detail="Stockfish engine binary is missing on server."
+            status_code=500,
+            detail="Stockfish engine binary is missing on server. Set STOCKFISH_PATH env var or install stockfish.",
         )
 
     try:
@@ -84,7 +97,7 @@ async def get_bot_move(request: MoveRequest):
 
         # Isolated Stockfish instance for this specific execution thread
         stockfish = Stockfish(
-            path=local_binary_path,
+            path=stockfish_path,
             depth=profile["depth"],
             parameters={
                 "Threads": 2,

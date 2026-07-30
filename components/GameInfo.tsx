@@ -20,10 +20,10 @@ function formatMoveList(moves: string[]): string {
   return pairs.join("  ");
 }
 
-export default function GameInfo({ chessRef }: { chessRef: { current: Chess } }) {
+export default function GameInfo({ fen }: { fen: string }) {
   const info = useMemo(() => {
-    const chess = chessRef.current;
-    const verbose = chess.history({ verbose: true });
+    const c = new Chess(fen);
+    const verbose = c.history({ verbose: true });
 
     const whiteCaptures: string[] = [];
     const blackCaptures: string[] = [];
@@ -43,12 +43,12 @@ export default function GameInfo({ chessRef }: { chessRef: { current: Chess } })
     const advantage = whiteMat - blackMat;
 
     return {
-      moves: chess.history(),
+      moves: c.history(),
       whiteCaptures,
       blackCaptures,
       advantage,
     };
-  }, [chessRef.current.fen()]);
+  }, [fen]);
 
   const { moves, whiteCaptures, blackCaptures, advantage } = info;
 

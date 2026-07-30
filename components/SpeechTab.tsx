@@ -20,7 +20,7 @@ declare global {
 
   interface SpeechRecognitionEvent extends Event {
     resultIndex: number;
-    results: any;
+    results: SpeechRecognitionResultList;
   }
 
   interface SpeechRecognitionErrorEvent extends Event {
@@ -105,7 +105,7 @@ export default function SpeechTab({
           }
         }
 
-        const move = chess.move(parsed as any);
+        const move = chess.move(parsed);
         if (move) {
           setLastMove(`${parsed} (${move.san})`);
           setStatusMessage(`Voice move: ${move.san}`);

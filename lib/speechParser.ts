@@ -9,7 +9,7 @@ const PIECE_MAP: Record<string, Record<string, string>> = {
 
 const FILLER_WORDS = ["to", "on", "at", "the", "a", "an", "square", "en", "à", "al", "el", "la", "le", "der", "die", "das", "il", "lo", "um", "uma", "o", "os", "as"];
 
-function normalizeText(text: string, lang: string): string {
+function normalizeText(text: string): string {
   let normalized = text.toLowerCase().trim();
   normalized = normalized.replace(/[^a-zà-ÿœæéèêëîïôöùûüçñáéíóúäöüß0-9\s-]/g, "");
   normalized = normalized.replace(/\s+/g, " ").trim();
@@ -56,7 +56,7 @@ export function parseChessMove(text: string, lang: string = "en"): string | null
   const castle = detectCastle(text);
   if (castle) return castle;
 
-  let normalized = normalizeText(text, lang);
+  let normalized = normalizeText(text);
 
   const uciMatch = normalized.match(/^([a-h][1-8])([a-h][1-8])$/);
   if (uciMatch) return `${uciMatch[1]}${uciMatch[2]}`;

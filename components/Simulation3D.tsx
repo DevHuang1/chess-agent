@@ -327,11 +327,16 @@ export default function Simulation3D({
   const [gestureLabel, setGestureLabel] = useState("");
   const [hoveredSquare, setHoveredSquare] = useState<string | null>(null);
   const [, forceUpdate] = useState(0);
+  const smoothHitRef = useRef({ x: 0, z: 0, y: 0 });
 
   const triggerRerender = useCallback(() => forceUpdate((n) => n + 1), []);
 
+  // Sync refs during render so the detect loop closure has up-to-date values
+  // eslint-disable-next-line react-hooks/refs
   selectedRef.current = selectedSquare;
+  // eslint-disable-next-line react-hooks/refs
   legalRef.current = legalSquares;
+  // eslint-disable-next-line react-hooks/refs
   hoveredRef.current = hoveredSquare;
 
   const rebuildPieces = useCallback((chess: Chess, scene: THREE.Scene, pieces: Map<string, THREE.Group>) => {
@@ -468,11 +473,27 @@ export default function Simulation3D({
     let isPointerDragging = false;
     let pointerGrabbedSquare: string | null = null;
     let pointerGrabbedGroup: THREE.Group | null = null;
-    let pointerTarget = new THREE.Vector3();
+    const pointerTarget = new THREE.Vector3();
     let releaseAnim: { piece: THREE.Group; from: THREE.Vector3; to: THREE.Vector3; progress: number } | null = null;
     let isOrbiting = false;
     let prevPointerX = 0;
     let prevPointerY = 0;
+
+    // Smooth tracking targets (interpolated in animate loop)
+    const fingerFollowTarget = new THREE.Vector3();
+    let gestureAnim: {
+      piece: THREE.Group;
+      from: THREE.Vector3;
+      to: THREE.Vector3;
+      progress: number;
+      done: () => void;
+    } | null = null;
+    // Orbit target for smooth camera interpolation
+    const smoothOrbit = { theta: Math.PI / 4, phi: Math.PI / 4, radius: 13 };
+
+    // Two-finger orbit tracking (separate from palm tracking)
+    let prevTwoMidX = 0;
+    let prevTwoMidY = 0;
 
     navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: "user" } })
       .then((stream) => {
@@ -524,8 +545,6 @@ export default function Simulation3D({
 
     const handActiveRef = { current: false };
     let grabbedPieceSquare: string | null = null;
-    let prevPalmX = 0;
-    let prevPalmY = 0;
     const gestureBuffer: Gesture[] = [];
 
     function processHand(lm: HandLandmark[]) {
@@ -555,13 +574,13 @@ export default function Simulation3D({
 
       const handX = lm[9][0] / vw;
       const handY = lm[9][1] / vh;
-      const palmX = lm[9][0] / vw;
-      const palmY = lm[9][1] / vh;
 
       gestureBuffer.push(isFist ? "fist" : isFlatPalm ? "palm" : isTwoFingers ? "two" : "none");
-      if (gestureBuffer.length > 4) gestureBuffer.shift();
-      const stable = gestureBuffer.filter(g => g === gestureBuffer[gestureBuffer.length - 1]).length >= 3;
-      const gesture: Gesture = stable ? gestureBuffer[gestureBuffer.length - 1] : gestureBuffer[gestureBuffer.length - 1] === "none" ? "none" : gestureBuffer[gestureBuffer.length - 2] || "none";
+      if (gestureBuffer.length > 6) gestureBuffer.shift();
+      const counts = { fist: 0, palm: 0, two: 0, none: 0 };
+      for (const g of gestureBuffer) counts[g]++;
+      const majority = (Object.entries(counts) as [Gesture, number][]).sort((a, b) => b[1] - a[1])[0][0];
+      const gesture: Gesture = counts[majority] >= 4 ? majority : "none";
 
       const ndcX = handX * 2 - 1;
       const ndcY = 1 - handY * 2;
@@ -575,8 +594,13 @@ export default function Simulation3D({
       const overBoard = hit && hitPoint.x > -BOARD_OFFSET - 0.5 && hitPoint.x < BOARD_OFFSET + 0.5 &&
         hitPoint.z > -BOARD_OFFSET - 0.5 && hitPoint.z < BOARD_OFFSET + 0.5;
 
-      if (overBoard || hit) {
-        finger3dRef.current = { x: hitPoint.x, z: hitPoint.z };
+      // Smooth finger position with EMA
+      if (hit) {
+        const smooth = smoothHitRef.current;
+        smooth.x += (hitPoint.x - smooth.x) * 0.4;
+        smooth.z += (hitPoint.z - smooth.z) * 0.4;
+        smooth.y = hitPoint.y;
+        finger3dRef.current = { x: smooth.x, z: smooth.z };
       } else {
         finger3dRef.current = null;
       }
@@ -604,24 +628,24 @@ export default function Simulation3D({
                 const pieceGroup = pieces.get(sq);
                 if (pieceGroup) {
                   grabbedPieceGroup = pieceGroup;
+                  gestureAnim = null;
                 }
               }
             }
 
             const grabbed = grabbedPieceGroup;
             if (grabbed && !isPointerDragging) {
-              const sq = positionToSquare(hitPoint.x, hitPoint.z);
-              if (sq) {
-                const snap = squareToPosition(sq);
-                grabbed.position.x = snap.x;
-                grabbed.position.z = snap.z;
-                grabbed.position.y = 1.2;
-                if (legalRef.current.includes(sq)) {
-                  destHighlight.position.set(snap.x, 0.03, snap.z);
-                  destHighlight.visible = true;
-                } else {
-                  destHighlight.visible = false;
-                }
+              // Smoothly follow finger position on the board plane
+              fingerFollowTarget.set(hitPoint.x, 1.2, hitPoint.z);
+
+              // Show dest highlight if over a legal square
+              const hoverSq = positionToSquare(hitPoint.x, hitPoint.z);
+              if (hoverSq && legalRef.current.includes(hoverSq)) {
+                const snap = squareToPosition(hoverSq);
+                destHighlight.position.set(snap.x, 0.03, snap.z);
+                destHighlight.visible = true;
+              } else {
+                destHighlight.visible = false;
               }
             }
           }
@@ -644,82 +668,87 @@ export default function Simulation3D({
           destHighlight.visible = false;
           setHoveredSquare(null);
         }
-        prevPalmX = 0;
-        prevPalmY = 0;
       } else if (gesture === "two") {
         setGestureLabel("Two");
 
         destHighlight.visible = false;
         setHoveredSquare(null);
 
-        if (prevPalmX !== 0) {
-          const deltaX = (palmX - prevPalmX) * 2;
-          const deltaY = (palmY - prevPalmY) * 2;
-          const orbit = camOrbit.current;
-          orbit.theta -= deltaX * 0.5;
-          orbit.phi = Math.max(0.2, Math.min(1.3, orbit.phi + deltaY * 0.5));
-          const x = orbit.radius * Math.sin(orbit.phi) * Math.cos(orbit.theta);
-          const y = orbit.radius * Math.cos(orbit.phi);
-          const z = orbit.radius * Math.sin(orbit.phi) * Math.sin(orbit.theta);
-          camera.position.set(x, y, z);
-          camera.lookAt(0, 0, 0);
+        // Use midpoint of index tip (lm[8]) and middle tip (lm[12]) for more stable tracking
+        const idxTip = lm[8];
+        const midTip = lm[12];
+        const twoMidX = ((idxTip[0] + midTip[0]) / 2) / vw;
+        const twoMidY = ((idxTip[1] + midTip[1]) / 2) / vh;
+
+        if (prevTwoMidX !== 0) {
+          const deltaX = (twoMidX - prevTwoMidX) * 3;
+          const deltaY = (twoMidY - prevTwoMidY) * 3;
+          smoothOrbit.theta -= deltaX;
+          smoothOrbit.phi = Math.max(0.2, Math.min(1.3, smoothOrbit.phi + deltaY));
         }
-        prevPalmX = palmX;
-        prevPalmY = palmY;
+        prevTwoMidX = twoMidX;
+        prevTwoMidY = twoMidY;
       } else {
         setGestureLabel("");
-        prevPalmX = 0;
-        prevPalmY = 0;
+        prevTwoMidX = 0;
+        prevTwoMidY = 0;
       }
+
+
 
       if (!isFist && grabbedPieceSquare && !isPointerDragging) {
         const grabbed = grabbedPieceGroup;
-        if (grabbed && finger3dRef.current) {
-          const toSq = positionToSquare(finger3dRef.current.x, finger3dRef.current.z);
-          const chess = chessRef.current;
+        if (grabbed) {
+          const fromSq = grabbedPieceSquare;
+          const toSq = finger3dRef.current
+            ? positionToSquare(finger3dRef.current.x, finger3dRef.current.z)
+            : null;
+
+          let moveSuccess = false;
           if (toSq && legalRef.current.includes(toSq)) {
-            const move = chess.move({ from: grabbedPieceSquare as Square, to: toSq as Square, promotion: "q" });
-            if (move) {
-              setStatusMessage(`3D Move: ${move.san}`);
-              rebuildPieces(chess, scene, pieces);
-              onMoveExecuted();
-              triggerRerender();
-            } else {
-              const origPos = squareToPosition(grabbedPieceSquare);
-              grabbed.position.set(origPos.x, 0.15, origPos.z);
+            try {
+              const move = chessRef.current.move({ from: fromSq as Square, to: toSq as Square, promotion: "q" });
+              if (move) {
+                const targetPos = squareToPosition(toSq);
+                gestureAnim = {
+                  piece: grabbed,
+                  from: grabbed.position.clone(),
+                  to: targetPos,
+                  progress: 0,
+                  done: () => {
+                    setStatusMessage(`3D Move: ${move.san}`);
+                    rebuildPieces(chessRef.current, scene, pieces);
+                    onMoveExecuted();
+                    triggerRerender();
+                  },
+                };
+                moveSuccess = true;
+              }
+            } catch {
+              // Board state changed (bot moved, etc.) — animate back
             }
-          } else {
-            const origPos = squareToPosition(grabbedPieceSquare);
-            grabbed.position.set(origPos.x, 0.15, origPos.z);
+          }
+
+          if (!moveSuccess) {
+            const origPos = squareToPosition(fromSq);
+            gestureAnim = {
+              piece: grabbed,
+              from: grabbed.position.clone(),
+              to: origPos,
+              progress: 0,
+              done: () => {},
+            };
           }
         }
         grabbedPieceSquare = null;
+        grabbedPieceGroup = null;
         setSelectedSquare(null);
         setLegalSquares([]);
         updateLegalDots([]);
         selectionRing.visible = false;
-        grabbedPieceGroup = null;
+        destHighlight.visible = false;
         setHoveredSquare(null);
         hoveredRef.current = null;
-      }
-
-      if (!isFist && isFlatPalm && overBoard && hit && hoveredRef.current && !grabbedPieceSquare) {
-        const chess = chessRef.current;
-        if (chess.turn() === "w") {
-          if (selectedRef.current && legalRef.current.includes(hoveredRef.current)) {
-            const move = chess.move({ from: selectedRef.current as Square, to: hoveredRef.current as Square, promotion: "q" });
-            if (move) {
-              setStatusMessage(`3D Move: ${move.san}`);
-              setSelectedSquare(null);
-              setLegalSquares([]);
-              updateLegalDots([]);
-              selectionRing.visible = false;
-              rebuildPieces(chess, scene, pieces);
-              onMoveExecuted();
-              triggerRerender();
-            }
-          }
-        }
       }
     }
 
@@ -781,6 +810,10 @@ export default function Simulation3D({
         const orbit = camOrbit.current;
         orbit.theta -= deltaX * 3;
         orbit.phi = Math.max(0.2, Math.min(1.3, orbit.phi + deltaY * 3));
+        // Sync smooth orbit target
+        smoothOrbit.theta = orbit.theta;
+        smoothOrbit.phi = orbit.phi;
+        smoothOrbit.radius = orbit.radius;
         const x = orbit.radius * Math.sin(orbit.phi) * Math.cos(orbit.theta);
         const y = orbit.radius * Math.cos(orbit.phi);
         const z = orbit.radius * Math.sin(orbit.phi) * Math.sin(orbit.theta);
@@ -856,6 +889,7 @@ export default function Simulation3D({
     canvas.addEventListener("wheel", (e) => {
       const orbit = camOrbit.current;
       orbit.radius = Math.max(5, Math.min(25, orbit.radius + e.deltaY * 0.01));
+      smoothOrbit.radius = orbit.radius;
       const x = orbit.radius * Math.sin(orbit.phi) * Math.cos(orbit.theta);
       const y = orbit.radius * Math.cos(orbit.phi);
       const z = orbit.radius * Math.sin(orbit.phi) * Math.sin(orbit.theta);
@@ -875,12 +909,28 @@ export default function Simulation3D({
     function animate() {
       animRef.current = requestAnimationFrame(animate);
 
+      // Smooth camera orbit interpolation (for two-finger gesture)
+      const orbit = camOrbit.current;
+      orbit.theta += (smoothOrbit.theta - orbit.theta) * 0.08;
+      orbit.phi += (smoothOrbit.phi - orbit.phi) * 0.08;
+      orbit.radius += (smoothOrbit.radius - orbit.radius) * 0.08;
+      const cx = orbit.radius * Math.sin(orbit.phi) * Math.cos(orbit.theta);
+      const cy = orbit.radius * Math.cos(orbit.phi);
+      const cz = orbit.radius * Math.sin(orbit.phi) * Math.sin(orbit.theta);
+      camera.position.set(cx, cy, cz);
+      camera.lookAt(0, 0, 0);
+
       // Smooth piece follow for pointer drag
       if (isPointerDragging && pointerGrabbedGroup) {
         pointerGrabbedGroup.position.lerp(pointerTarget, 0.3);
       }
 
-      // Release animation
+      // Smooth piece follow for fist grab
+      if (!isPointerDragging && grabbedPieceGroup && grabbedPieceSquare) {
+        grabbedPieceGroup.position.lerp(fingerFollowTarget, 0.25);
+      }
+
+      // Release animation (pointer)
       if (releaseAnim) {
         releaseAnim.progress += 0.04;
         if (releaseAnim.progress >= 1) {
@@ -891,23 +941,37 @@ export default function Simulation3D({
         }
       }
 
+      // Gesture release animation
+      if (gestureAnim) {
+        gestureAnim.progress += 0.04;
+        if (gestureAnim.progress >= 1) {
+          gestureAnim.piece.position.copy(gestureAnim.to);
+          const done = gestureAnim.done;
+          gestureAnim = null;
+          done();
+        } else {
+          gestureAnim.piece.position.lerpVectors(gestureAnim.from, gestureAnim.to, gestureAnim.progress);
+        }
+      }
+
       renderer.render(scene, camera);
     }
     animate();
 
+    const cleanupVid = videoRef.current;
     return () => {
       cancelAnimationFrame(animRef.current);
       cancelAnimationFrame(detectRaf);
       mediapipeActive = false;
       window.removeEventListener("resize", handleResize);
       renderer.dispose();
-      const vid = videoRef.current;
-      if (vid) {
-        vid.pause();
-        vid.srcObject = null;
+      if (cleanupVid) {
+        cleanupVid.pause();
+        cleanupVid.srcObject = null;
       }
       if (videoStream) videoStream.getTracks().forEach((t) => t.stop());
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gameOutcome, isBotThinking]);
 
   return (
@@ -941,7 +1005,8 @@ export default function Simulation3D({
           )}
         </div>
         <div className="absolute top-20 left-4 z-20 w-96">
-          <GameInfo chessRef={chessRef} />
+          {/* eslint-disable-next-line react-hooks/refs */}
+          <GameInfo fen={chessRef.current.fen()} />
         </div>
         <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2 rounded-lg bg-black/50 px-3 py-2 border border-zinc-700/50 backdrop-blur-sm">
           <span className={`h-2 w-2 rounded-full ${handActive ? "bg-emerald-400 animate-pulse" : "bg-zinc-600"}`} />

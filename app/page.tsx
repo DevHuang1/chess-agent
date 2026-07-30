@@ -205,48 +205,6 @@ const EMOTION_PROFILES: Record<EmotionLabel, { depth: number; skillLevel: number
   confident: { depth: 10, skillLevel: 20, elo: 3190 },
 };
 
-const EMOTION_UI: Record<
-  EmotionLabel,
-  { badge: string; dot: string; ring: string; label: string }
-> = {
-  stressed: {
-    badge: "bg-rose-950/60 text-rose-200 ring-rose-500/30",
-    dot: "bg-rose-400",
-    ring: "ring-rose-500/40",
-    label: "Stressed",
-  },
-  frustrated: {
-    badge: "bg-orange-950/60 text-orange-200 ring-orange-500/30",
-    dot: "bg-orange-400",
-    ring: "ring-orange-500/40",
-    label: "Frustrated",
-  },
-  calm: {
-    badge: "bg-sky-950/60 text-sky-200 ring-sky-500/30",
-    dot: "bg-sky-400",
-    ring: "ring-sky-500/40",
-    label: "Calm",
-  },
-  neutral: {
-    badge: "bg-zinc-800/80 text-zinc-200 ring-zinc-500/30",
-    dot: "bg-zinc-400",
-    ring: "ring-zinc-500/40",
-    label: "Neutral",
-  },
-  focused: {
-    badge: "bg-violet-950/60 text-violet-200 ring-violet-500/30",
-    dot: "bg-violet-400",
-    ring: "ring-violet-500/40",
-    label: "Focused",
-  },
-  confident: {
-    badge: "bg-amber-950/60 text-amber-200 ring-amber-500/30",
-    dot: "bg-amber-400",
-    ring: "ring-amber-500/40",
-    label: "Confident",
-  },
-};
-
 const Chessboard = dynamic(
   () => import("react-chessboard").then((mod) => mod.Chessboard),
   {
@@ -799,6 +757,7 @@ export default function ChessPage() {
       if (!targetSquare) return false;
       const chess = chessRef.current;
       if (chess.turn() !== "w") return false;
+      // eslint-disable-next-line react-hooks/purity
       const now = Date.now();
       return applyMove(sourceSquare, targetSquare, now);
     },
@@ -824,11 +783,6 @@ export default function ChessPage() {
       boxShadow: "inset 0 0 0 4px rgba(251,191,36,0.6)",
     },
   };
-
-  const emotionUi = EMOTION_UI[emotion];
-  const engineStrengthPercent = Math.round(
-    ((engineProfile.elo - 1320) / (3190 - 1320)) * 100,
-  );
 
   const gameResultText =
     gameOutcome === "checkmate"
@@ -970,7 +924,8 @@ export default function ChessPage() {
         <p className="mt-1 text-sm text-zinc-400">{statusMessage}</p>
 
         <div className="mt-3">
-          <GameInfo chessRef={chessRef} />
+          {/* eslint-disable-next-line react-hooks/refs */}
+          <GameInfo fen={chessRef.current.fen()} />
         </div>
 
         <div className="mt-3 flex gap-1 rounded-lg bg-zinc-900 p-1 border border-zinc-800">

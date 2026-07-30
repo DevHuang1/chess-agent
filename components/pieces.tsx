@@ -1,7 +1,5 @@
 import type { PieceRenderObject } from "react-chessboard";
 
-const SHARED_DEFS = "chess-piece-defs";
-
 function sharedDefs() {
   return (
     <defs>
@@ -39,7 +37,7 @@ type PieceRenderer = (props?: {
 function svgPiece(
   children: React.ReactNode,
 ): PieceRenderer {
-  return (props) => (
+  const Piece = (props?: { square?: string; svgStyle?: React.CSSProperties }) => (
     <svg
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 45 45"
@@ -51,6 +49,8 @@ function svgPiece(
       {children}
     </svg>
   );
+  Piece.displayName = "SvgPiece";
+  return Piece;
 }
 
 function classicPath(

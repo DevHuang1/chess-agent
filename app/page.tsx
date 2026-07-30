@@ -40,6 +40,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Chess, Square } from "chess.js";
 import dynamic from "next/dynamic";
+import SpeechTab from "@/components/SpeechTab";
+import Simulation3D from "@/components/Simulation3D";
+import GameInfo from "@/components/GameInfo";
+import { PIECE_DESIGNS, PieceDesignKey } from "@/components/pieces";
 import type { ChessboardOptions } from "react-chessboard";
 
 const BOT_MOVE_API_URL = "/api/bot-move";
@@ -347,6 +351,10 @@ export default function ChessPage() {
   const [botRemark, setBotRemark] = useState("");
   const [chatInput, setChatInput] = useState("");
   const [isCoachThinking, setIsCoachThinking] = useState(false);
+
+  const [activeTab, setActiveTab] = useState<"coach" | "speech" | "3d">("coach");
+
+  const [pieceDesign, setPieceDesign] = useState<PieceDesignKey>("classic");
 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
@@ -787,8 +795,16 @@ export default function ChessPage() {
       // eslint-disable-next-line react-hooks/purity
       if (square) handleSquareClick(square, Date.now());
     },
+    onPieceDrop: ({ sourceSquare, targetSquare }) => {
+      if (!targetSquare) return false;
+      const chess = chessRef.current;
+      if (chess.turn() !== "w") return false;
+      const now = Date.now();
+      return applyMove(sourceSquare, targetSquare, now);
+    },
     squareStyles: customSquareStyles,
-    allowDragging: false,
+    pieces: PIECE_DESIGNS[pieceDesign].pieces,
+    allowDragging: true,
     animationDurationInMs: 200,
     showNotation: true,
     darkSquareStyle: { backgroundColor: "var(--sentio-board-dark)" },
@@ -799,6 +815,13 @@ export default function ChessPage() {
       touchAction: "none",
       borderRadius: "6px",
       overflow: "hidden",
+      cursor: "grab",
+    },
+    draggingPieceStyle: {
+      cursor: "grabbing",
+    },
+    dropSquareStyle: {
+      boxShadow: "inset 0 0 0 4px rgba(251,191,36,0.6)",
     },
   };
 
@@ -826,6 +849,27 @@ export default function ChessPage() {
     setSelectedSquare(null);
     setLegalMoveSquares([]);
     setStatusMessage("New game started.");
+  }
+
+  if (activeTab === "3d") {
+    return (
+      <Simulation3D
+        chessRef={chessRef}
+        gameOutcome={gameOutcome}
+        isBotThinking={isBotThinking}
+        onMoveExecuted={() => {
+          const nextFen = chessRef.current.fen();
+          setSelectedSquare(null);
+          setLegalMoveSquares([]);
+          updateGameOutcome(chessRef.current);
+          if (chessRef.current.turn() === "b" && !chessRef.current.isGameOver()) {
+            void triggerBotTurn(nextFen);
+          }
+        }}
+        setStatusMessage={setStatusMessage}
+        onExit={() => setActiveTab("coach")}
+      />
+    );
   }
 
   return (
@@ -870,6 +914,22 @@ export default function ChessPage() {
               <span className="text-zinc-500 animate-pulse">thinking...</span>
             )}
           </div>
+          <div className="flex items-center gap-1 text-sm">
+            {Object.entries(PIECE_DESIGNS).map(([key, d]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setPieceDesign(key as PieceDesignKey)}
+                className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+                  pieceDesign === key
+                    ? "bg-amber-500/15 text-amber-300"
+                    : "text-zinc-600 hover:text-zinc-400"
+                }`}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
           <div className="flex-1" />
           <span className="text-sm text-zinc-600">{statusMessage}</span>
         </div>
@@ -909,84 +969,140 @@ export default function ChessPage() {
         <h1 className="font-mono text-lg font-semibold text-amber-400">Sentio</h1>
         <p className="mt-1 text-sm text-zinc-400">{statusMessage}</p>
 
-        <div className="mt-3 flex min-h-0 flex-1 flex-col rounded-md border border-zinc-800 bg-zinc-900 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-lg text-zinc-300 font-medium">Coach Chat</p>
-            <span
-              title={coachLlmDetail}
-              className={`rounded px-2 py-0.5 text-xs font-semibold ${
-                coachLlmConnection === "connected"
-                  ? "bg-emerald-900/40 text-emerald-300"
-                  : coachLlmConnection === "disabled"
-                    ? "bg-zinc-700 text-zinc-300"
-                    : coachLlmConnection === "checking"
-                      ? "bg-amber-900/40 text-amber-300"
-                      : "bg-rose-900/40 text-rose-300"
-              }`}
-            >
-              {coachLlmConnection === "connected"
-                ? "LLM connected"
-                : coachLlmConnection === "disabled"
-                  ? "LLM disabled"
-                  : coachLlmConnection === "checking"
-                    ? "LLM checking"
-                    : "LLM disconnected"}
-            </span>
-          </div>
-          <div
-            ref={chatScrollRef}
-            className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1"
-          >
-            {chatMessages.map((message) => (
-              <div
-                key={message.id}
-                className={`rounded-md ${
-                  message.role === "assistant"
-                    ? "bg-zinc-800 text-zinc-200"
-                    : "bg-amber-900/30 text-amber-100"
-                }`}
-              >
-                <div className="p-3 text-base leading-relaxed whitespace-pre-line">
-                  {message.content}
-                </div>
-                {message.bestMove && (
-                  <div className="border-t border-zinc-700/50 px-3 py-2">
-                    <button
-                      type="button"
-                      onClick={() => executeCoachMove(message.bestMove!.uci, Date.now())}
-                      className="w-full rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-500 transition-colors"
-                    >
-                      Play {message.bestMove.san}
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
+        <div className="mt-3">
+          <GameInfo chessRef={chessRef} />
+        </div>
 
-          <div className="mt-3 flex gap-2">
-            <input
-              value={chatInput}
-              onChange={(event) => setChatInput(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  void handleAskCoach(Date.now());
+        <div className="mt-3 flex gap-1 rounded-lg bg-zinc-900 p-1 border border-zinc-800">
+          <button
+            type="button"
+            onClick={() => setActiveTab("coach")}
+            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              activeTab === "coach"
+                ? "bg-amber-500/15 text-amber-300"
+                : "text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            Coach
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("speech")}
+            className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+              activeTab === "speech"
+                ? "bg-amber-500/15 text-amber-300"
+                : "text-zinc-500 hover:text-zinc-300"
+            }`}
+          >
+            Speech
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("3d")}
+            className="flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors text-zinc-500 hover:text-zinc-300"
+          >
+            3D
+          </button>
+        </div>
+
+        <div className="mt-3 flex min-h-0 flex-1 flex-col rounded-md border border-zinc-800 bg-zinc-900 p-4">
+          {activeTab === "coach" ? (
+            <>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-lg text-zinc-300 font-medium">Coach Chat</p>
+                <span
+                  title={coachLlmDetail}
+                  className={`rounded px-2 py-0.5 text-xs font-semibold ${
+                    coachLlmConnection === "connected"
+                      ? "bg-emerald-900/40 text-emerald-300"
+                      : coachLlmConnection === "disabled"
+                        ? "bg-zinc-700 text-zinc-300"
+                        : coachLlmConnection === "checking"
+                          ? "bg-amber-900/40 text-amber-300"
+                          : "bg-rose-900/40 text-rose-300"
+                  }`}
+                >
+                  {coachLlmConnection === "connected"
+                    ? "LLM connected"
+                    : coachLlmConnection === "disabled"
+                      ? "LLM disabled"
+                      : coachLlmConnection === "checking"
+                        ? "LLM checking"
+                        : "LLM disconnected"}
+                </span>
+              </div>
+              <div
+                ref={chatScrollRef}
+                className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1"
+              >
+                {chatMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`rounded-md ${
+                      message.role === "assistant"
+                        ? "bg-zinc-800 text-zinc-200"
+                        : "bg-amber-900/30 text-amber-100"
+                    }`}
+                  >
+                    <div className="p-3 text-base leading-relaxed whitespace-pre-line">
+                      {message.content}
+                    </div>
+                    {message.bestMove && (
+                      <div className="border-t border-zinc-700/50 px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => executeCoachMove(message.bestMove!.uci, Date.now())}
+                          className="w-full rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-500 transition-colors"
+                        >
+                          Play {message.bestMove.san}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-3 flex gap-2">
+                <input
+                  value={chatInput}
+                  onChange={(event) => setChatInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      void handleAskCoach(Date.now());
+                    }
+                  }}
+                  placeholder="Ask Sentio for advice..."
+                  className="flex-1 rounded border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-base text-zinc-100 outline-none focus:border-amber-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleAskCoach(Date.now());
+                  }}
+                  disabled={isCoachThinking || !chatInput.trim()}
+                  className="rounded bg-amber-500 px-4 py-2.5 text-base font-semibold text-zinc-900 disabled:opacity-50"
+                >
+                  {isCoachThinking ? "..." : "Send"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <SpeechTab
+              chessRef={chessRef}
+              gameOutcome={gameOutcome}
+              isBotThinking={isBotThinking}
+              onMoveExecuted={() => {
+                const nextFen = chessRef.current.fen();
+                setSelectedSquare(null);
+                setLegalMoveSquares([]);
+                updateGameOutcome(chessRef.current);
+                if (chessRef.current.turn() === "b" && !chessRef.current.isGameOver()) {
+                  void triggerBotTurn(nextFen);
                 }
               }}
-              placeholder="Ask Sentio for advice..."
-              className="flex-1 rounded border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-base text-zinc-100 outline-none focus:border-amber-500"
+              setStatusMessage={setStatusMessage}
             />
-            <button
-              type="button"
-              onClick={() => {
-                void handleAskCoach(Date.now());
-              }}
-              disabled={isCoachThinking || !chatInput.trim()}
-              className="rounded bg-amber-500 px-4 py-2.5 text-base font-semibold text-zinc-900 disabled:opacity-50"
-            >
-              {isCoachThinking ? "..." : "Send"}
-            </button>
-          </div>
+          )}
         </div>
       </aside>
 

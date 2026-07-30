@@ -25,8 +25,15 @@ The response includes the best move in UCI notation and the resolved engine
 profile for the frontend to display.
 """
 
+import glob
 import os
+import platform
 import shutil
+import stat
+import subprocess
+import sys
+import tarfile
+import urllib.request
 from typing import Dict
 
 from fastapi import FastAPI, HTTPException
@@ -44,22 +51,77 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+STOCKFISH_VERSION = "sf_18"
+STOCKFISH_DOWNLOAD_URL_BY_ARCH = {
+    "x86_64": f"https://github.com/official-stockfish/Stockfish/releases/download/{STOCKFISH_VERSION}/stockfish-ubuntu-x86-64-avx2.tar",
+    "aarch64": f"https://github.com/official-stockfish/Stockfish/releases/download/{STOCKFISH_VERSION}/stockfish-android-armv8.tar",
+    "arm64": f"https://github.com/official-stockfish/Stockfish/releases/download/{STOCKFISH_VERSION}/stockfish-android-armv8.tar",
+}
+
+STOCKFISH_LOCAL_PATH = os.path.join(os.path.dirname(__file__), "stockfish")
+
+
+def _is_executable(path: str) -> bool:
+    return os.path.isfile(path) and os.access(path, os.X_OK)
+
+
+def _download_stockfish(target: str) -> str | None:
+    arch = platform.machine()
+    url = STOCKFISH_DOWNLOAD_URL_BY_ARCH.get(arch)
+    if not url:
+        print(f"[sentio] No pre-built stockfish for arch={arch}")
+        return None
+    tmp = f"/tmp/stockfish_{STOCKFISH_VERSION}.tar"
+    try:
+        print(f"[sentio] Downloading stockfish ({arch}) from {url} ...")
+        urllib.request.urlretrieve(url, tmp)
+        extract_dir = f"/tmp/stockfish_extract"
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        os.makedirs(extract_dir, exist_ok=True)
+        with tarfile.open(tmp, "r") as tar:
+            tar.extractall(path=extract_dir)
+        binaries = glob.glob(os.path.join(extract_dir, "**", "stockfish*"), recursive=True)
+        if not binaries:
+            print(f"[sentio] No stockfish binary found in extracted archive")
+            return None
+        shutil.copy2(binaries[0], target)
+        st = os.stat(target)
+        os.chmod(target, st.st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        os.remove(tmp)
+        shutil.rmtree(extract_dir, ignore_errors=True)
+        print(f"[sentio] Stockfish installed at {target}")
+        return target
+    except Exception as e:
+        print(f"[sentio] Failed to download stockfish: {e}")
+        return None
+
 
 def resolve_stockfish_path() -> str:
     candidates = [
         os.environ.get("STOCKFISH_PATH"),
-        os.path.join(os.path.dirname(__file__), "stockfish"),
+        STOCKFISH_LOCAL_PATH,
         shutil.which("stockfish"),
         "/usr/games/stockfish",
         "/usr/bin/stockfish",
     ]
     for c in candidates:
-        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+        if c and _is_executable(c):
             return c
     return "stockfish"
 
 
+print(f"[sentio] arch={platform.machine()}")
 print(f"[sentio] STOCKFISH_PATH={os.environ.get('STOCKFISH_PATH', '(not set)')}")
+
+stockfish_path = resolve_stockfish_path()
+if not _is_executable(stockfish_path):
+    print(f"[sentio] Stockfish not found. Attempting auto-download...")
+    if _download_stockfish(STOCKFISH_LOCAL_PATH):
+        stockfish_path = STOCKFISH_LOCAL_PATH
+    else:
+        print(f"[sentio] Auto-download failed. Try: sudo apt install stockfish")
+else:
+    print(f"[sentio] Stockfish found at {stockfish_path}")
 
 
 EMOTION_STRENGTH_PROFILES: Dict[str, Dict[str, int]] = {
@@ -90,11 +152,13 @@ def resolve_strength_profile(emotion: str):
 
 @app.post("/api/bot-move")
 async def get_bot_move(request: MoveRequest):
-    stockfish_path = resolve_stockfish_path()
-    if not os.path.isfile(stockfish_path) or not os.access(stockfish_path, os.X_OK):
+    path = stockfish_path if _is_executable(stockfish_path) else resolve_stockfish_path()
+    if not _is_executable(path):
         raise HTTPException(
             status_code=500,
-            detail="Stockfish engine binary is missing on server. Set STOCKFISH_PATH env var or install stockfish.",
+            detail="Stockfish engine binary is missing on server. "
+            "Set STOCKFISH_PATH env var, run: sudo apt install stockfish, "
+            "or use Docker (docker compose up).",
         )
 
     try:
@@ -102,7 +166,7 @@ async def get_bot_move(request: MoveRequest):
 
         # Isolated Stockfish instance for this specific execution thread
         stockfish = Stockfish(
-            path=stockfish_path,
+            path=path,
             depth=profile["depth"],
             parameters={
                 "Threads": 2,

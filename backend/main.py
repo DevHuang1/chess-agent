@@ -50,11 +50,16 @@ def resolve_stockfish_path() -> str:
         os.environ.get("STOCKFISH_PATH"),
         os.path.join(os.path.dirname(__file__), "stockfish"),
         shutil.which("stockfish"),
+        "/usr/games/stockfish",
+        "/usr/bin/stockfish",
     ]
     for c in candidates:
         if c and os.path.isfile(c) and os.access(c, os.X_OK):
             return c
     return "stockfish"
+
+
+print(f"[sentio] STOCKFISH_PATH={os.environ.get('STOCKFISH_PATH', '(not set)')}")
 
 
 EMOTION_STRENGTH_PROFILES: Dict[str, Dict[str, int]] = {

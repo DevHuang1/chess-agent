@@ -65,7 +65,7 @@ def _is_executable(path: str) -> bool:
     return os.path.isfile(path) and os.access(path, os.X_OK)
 
 
-def _download_stockfish(target: str) -> str | None:
+def _download_stockfish(target: str):  # noqa: UP
     arch = platform.machine()
     url = STOCKFISH_DOWNLOAD_URL_BY_ARCH.get(arch)
     if not url:

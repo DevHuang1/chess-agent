@@ -1,4 +1,4 @@
-import type { PieceRenderObject } from "react-chessboard";
+import { defaultPieces, type PieceRenderObject } from "react-chessboard";
 
 function sharedDefs() {
   return (
@@ -78,6 +78,17 @@ function minimalPath(
   );
 }
 
+function standardPath(
+  path: string,
+  color: "w" | "b",
+): PieceRenderer {
+  const fill = color === "w" ? "#ffffff" : "#1a1a1a";
+  const stroke = color === "w" ? "#444" : "#888";
+  return svgPiece(
+    <path d={path} fill={fill} stroke={stroke} strokeWidth={1.1} strokeLinecap="round" strokeLinejoin="round" />,
+  );
+}
+
 function neoPath(
   path: string,
   color: "w" | "b",
@@ -113,9 +124,17 @@ function makePreset(
 }
 
 export const PIECE_DESIGNS: Record<string, { label: string; pieces: PieceRenderObject }> = {
+  chesscom: {
+    label: "Chess.com",
+    pieces: defaultPieces,
+  },
   classic: {
     label: "Classic",
     pieces: makePreset(classicPath),
+  },
+  standard: {
+    label: "Standard",
+    pieces: makePreset(standardPath),
   },
   minimal: {
     label: "Minimal",

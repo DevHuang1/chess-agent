@@ -500,10 +500,25 @@ export default function ChessPage() {
   }
 
   async function triggerBotTurn(currentFen: string) {
-    try {
-      setIsBotThinking(true);
-      setStatusMessage("Sentio engine is calculating...");
+    setIsBotThinking(true);
+    setStatusMessage("Sentio engine is calculating...");
 
+    // Local fallback bot: if the engine backend is unreachable, slow, or
+    // returns an illegal move, pick a random legal move in the browser so the
+    // game never freezes on the bot's turn.
+    const localBotMove = (chess: Chess): { from: Square; to: Square } | null => {
+      const moves = chess.moves({ verbose: true });
+      if (moves.length === 0) return null;
+      const m = moves[Math.floor(Math.random() * moves.length)];
+      return { from: m.from, to: m.to };
+    };
+
+    let uciMove: string | null = null;
+    let fallbackUsed = false;
+    let fallbackReason = "";
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20000);
       const response = await fetch(BOT_MOVE_API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -512,7 +527,9 @@ export default function ChessPage() {
           emotion,
           strengthPreference: "adaptive",
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timer);
 
       if (!response.ok) {
         const data = (await response.json().catch(() => null)) as
@@ -531,40 +548,65 @@ export default function ChessPage() {
         setBackendEngineProfile(data.engineProfile);
       }
 
-      if (data.botMove) {
-        const chess = chessRef.current;
-        const uciMove = data.botMove.toLowerCase();
-
-        let isCapture = false;
-        try {
-          const from = uciMove.substring(0, 2);
-          const to = uciMove.substring(2, 4);
-          const target = chess.get(to as Square);
-          isCapture = !!target && target.color === "w";
-          chess.move({ from: from as Square, to: to as Square, promotion: uciMove.length === 5 ? uciMove[4] as "q" | "r" | "b" | "n" : undefined });
-        } catch {
-          chess.move(uciMove);
-        }
-
-        setGamePosition(chess.fen());
-        if (!updateGameOutcome(chess)) {
-          setStatusMessage("Engine move completed.");
-          const isCheck = chess.inCheck();
-          setBotRemark(generateRemark(emotion, isCheck, isCapture));
-        } else {
-          setBotRemark(chess.isCheckmate() ? "Checkmate. Better luck next time." : "Game over. I won.");
-        }
-      } else {
-        setStatusMessage(data.status ?? "No move available.");
+      uciMove = data.botMove ?? null;
+      if (!uciMove) {
+        fallbackUsed = true;
+        fallbackReason = data.status ?? "No move available from engine.";
       }
     } catch (error) {
+      fallbackUsed = true;
+      fallbackReason =
+        error instanceof Error && error.name === "AbortError"
+          ? "Engine took too long to respond."
+          : error instanceof Error
+            ? error.message
+            : "Engine communication failure.";
+      const m = localBotMove(chessRef.current);
+      if (m) uciMove = m.from + m.to;
       console.error("Communication failure with Stockfish engine:", error);
-      setStatusMessage(
-        error instanceof Error ? error.message : "Engine communication failure.",
-      );
-    } finally {
-      setIsBotThinking(false);
     }
+
+    if (uciMove) {
+      const chess = chessRef.current;
+      const lower = uciMove.toLowerCase();
+
+      let isCapture = false;
+      try {
+        const from = lower.substring(0, 2);
+        const to = lower.substring(2, 4);
+        const target = chess.get(to as Square);
+        isCapture = !!target && target.color === "w";
+        chess.move({
+          from: from as Square,
+          to: to as Square,
+          promotion: lower.length === 5 ? (lower[4] as "q" | "r" | "b" | "n") : undefined,
+        });
+      } catch {
+        // The engine's suggested move is illegal on the current position —
+        // fall back to a guaranteed-legal local move.
+        fallbackUsed = true;
+        fallbackReason = "Engine returned an illegal move.";
+        const m = localBotMove(chess);
+        if (m) chess.move({ from: m.from, to: m.to });
+      }
+
+      setGamePosition(chess.fen());
+      if (!updateGameOutcome(chess)) {
+        setStatusMessage(
+          fallbackUsed
+            ? `${fallbackReason} Used a local fallback move.`
+            : "Engine move completed.",
+        );
+        const isCheck = chess.inCheck();
+        setBotRemark(generateRemark(emotion, isCheck, isCapture));
+      } else {
+        setBotRemark(chess.isCheckmate() ? "Checkmate. Better luck next time." : "Game over. I won.");
+      }
+    } else {
+      setStatusMessage(fallbackUsed ? fallbackReason : "No move available.");
+    }
+
+    setIsBotThinking(false);
   }
 
   function applyMove(from: string, to: string, now: number) {
@@ -809,8 +851,7 @@ export default function ChessPage() {
     return (
       <Simulation3D
         chessRef={chessRef}
-        gameOutcome={gameOutcome}
-        isBotThinking={isBotThinking}
+        gamePosition={gamePosition}
         onMoveExecuted={() => {
           const nextFen = chessRef.current.fen();
           setSelectedSquare(null);

@@ -17,8 +17,8 @@ function normalizeText(text: string): string {
 }
 
 function extractSquare(text: string): string | null {
-  const match = text.match(/\b([a-h][1-8])\b/);
-  return match ? match[1] : null;
+  const matches = text.match(/[a-h][1-8]/g);
+  return matches ? matches[matches.length - 1] : null;
 }
 
 function detectCastle(text: string): string | null {
@@ -44,12 +44,68 @@ function detectTakes(text: string, lang: string): boolean {
   return words.some((w) => text.includes(w));
 }
 
+const PIECE_ABBREVIATIONS: Record<string, string> = {
+  p: "",
+  n: "N",
+  b: "B",
+  r: "R",
+  q: "Q",
+  k: "K",
+};
+
+function levenshtein(a: string, b: string): number {
+  const dp = Array.from({ length: a.length + 1 }, () =>
+    new Array<number>(b.length + 1).fill(0),
+  );
+  for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = Math.min(
+        dp[i - 1][j] + 1,
+        dp[i][j - 1] + 1,
+        dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+  }
+  return dp[a.length][b.length];
+}
+
 function extractPiece(text: string, lang: string): string | null {
   const map = PIECE_MAP[lang] ?? PIECE_MAP.en;
+
   for (const [name, letter] of Object.entries(map)) {
-    if (text.includes(name)) return letter;
+    if (name && new RegExp(`\\b${name}\\b`, "i").test(text)) return letter;
   }
-  return null;
+
+  for (const word of text.split(/\s+/)) {
+    if (word in PIECE_ABBREVIATIONS) return PIECE_ABBREVIATIONS[word];
+  }
+
+  let best: { dist: number; letter: string } | null = null;
+  for (const word of text.split(/\s+/)) {
+    for (const [name, letter] of Object.entries(map)) {
+      if (!name) continue;
+      const dist = levenshtein(word.toLowerCase(), name.toLowerCase());
+      const threshold = Math.max(1, Math.round(name.length / 3));
+      if (dist <= threshold && (!best || dist < best.dist)) {
+        best = { dist, letter };
+      }
+    }
+  }
+  return best ? best.letter : null;
+}
+
+function extractSanPiece(text: string, square: string): string | null {
+  const idx = text.lastIndexOf(square);
+  const prefix = text.slice(0, idx).trim();
+  if (!prefix) return null;
+
+  const match = prefix.match(/^([pbnrqk])([a-h]|[1-8])?$/);
+  if (!match) return null;
+
+  const pieceLetter = PIECE_ABBREVIATIONS[match[1]];
+  return `${pieceLetter}${match[2] ?? ""}`;
 }
 
 export function parseChessMove(text: string, lang: string = "en"): string | null {
@@ -74,7 +130,15 @@ export function parseChessMove(text: string, lang: string = "en"): string | null
 
   if (!square) return null;
 
-  const pieceLetter = piece ?? "";
-  const separator = takes ? "x" : "";
-  return `${pieceLetter}${separator}${square}`;
+  const sanPiece = extractSanPiece(normalized, square);
+  const pieceLetter = piece ?? sanPiece ?? "";
+  const idx = normalized.lastIndexOf(square);
+  const prev = idx > 0 ? normalized[idx - 1] : "";
+  const pawnCaptureFile = /^[a-h]$/.test(prev);
+
+  if (takes) {
+    if (!piece && pawnCaptureFile) return `${prev}x${square}`;
+    return `${pieceLetter}x${square}`;
+  }
+  return `${pieceLetter}${square}`;
 }
